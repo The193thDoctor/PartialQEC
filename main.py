@@ -103,6 +103,9 @@ def create_circuit(error_rate):
     for qubit in range(16):
         circuit.append("M", qubit)
 
+    print(circuit)
+    print("CIRCUIT ABOVE")
+
     return circuit
 
 
