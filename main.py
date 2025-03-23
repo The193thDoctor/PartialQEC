@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import sinter
 from typing import List
 
+# Change this constant to modify the number of logical qubits (blocks)
+NUM_BLOCKS = 1
 
 def stabilizer_to_mpp_targets(stab, block_qubits):
     """
@@ -30,7 +32,6 @@ def stabilizer_to_mpp_targets(stab, block_qubits):
             raise ValueError(f"Unexpected Pauli letter: {pauli}")
     return mpp_targets
 
-
 def encode_logical(circuit, block_qubits):
     """
     Encode the physical state in the first qubit of block_qubits into a logical state in the full block of qubits
@@ -50,16 +51,16 @@ def encode_logical(circuit, block_qubits):
     """
     q0, q1, q2, q3, q4 = block_qubits
 
-    circuit.append("CNOT",[q0, q3])
+    circuit.append("CNOT", [q0, q3])
     circuit.append("H_YZ", [q1])
-    circuit.append("H",[q1])
-    circuit.append("CNOT", [q1,q3])
-    circuit.append("CNOT",[q1,q2])
-    circuit.append("H",[q4])
-    circuit.append("CNOT",[q4,q1])
-    circuit.append("CNOT",[q4,q0])
-    circuit.append("H_YZ",[q0])
-    circuit.append("CNOT",[q0,q2])
+    circuit.append("H", [q1])
+    circuit.append("CNOT", [q1, q3])
+    circuit.append("CNOT", [q1, q2])
+    circuit.append("H", [q4])
+    circuit.append("CNOT", [q4, q1])
+    circuit.append("CNOT", [q4, q0])
+    circuit.append("H_YZ", [q0])
+    circuit.append("CNOT", [q0, q2])
 
 def create_circuit(error_rate):
     """
@@ -67,14 +68,13 @@ def create_circuit(error_rate):
 
     Qubit assignment:
       Qubit 0: physical control (uncorrected) qubit.
-      Qubits 1-5: Block 1 (encoded logical qubit using the [[5,1,3]] code).
-      Qubits 6-10: Block 2.
-      Qubits 11-15: Block 3.
+      Qubits 1 to 5*NUM_BLOCKS: Each block of 5 qubits represents an encoded logical qubit using the [[5,1,3]] code.
     """
+    total_qubits = 1 + NUM_BLOCKS * 5
     circuit = stim.Circuit()
 
     # Initialize all qubits to |0>
-    for q in range(16):
+    for q in range(total_qubits):
         circuit.append("R", q)
 
     # (Optional) Prepare the control qubit in |1> if desired.
@@ -88,12 +88,11 @@ def create_circuit(error_rate):
         "ZXIXZ",
     ]
 
-    num_blocks = 3
-    for block in range(num_blocks):
+    for block in range(NUM_BLOCKS):
         block_start = 1 + block * 5
         block_qubits = list(range(block_start, block_start + 5))
 
-        # Instead of using a transversal CNOT from qubit 0, encode the block into |0_L>.
+        # Encode the block into the logical state.
         encode_logical(circuit, block_qubits)
 
         # Insert depolarizing noise after the encoding.
@@ -108,13 +107,12 @@ def create_circuit(error_rate):
             circuit.append("DETECTOR", [stim.target_rec(-1)])
 
     # Final measurements in the Z basis.
-    for qubit in range(16):
+    for qubit in range(total_qubits):
         circuit.append("M", qubit)
 
     print(circuit)
     print("CIRCUIT ABOVE")
     return circuit
-
 
 def main():
     """
@@ -123,9 +121,9 @@ def main():
     tasks = [
         sinter.Task(
             circuit=create_circuit(noise),
-            json_metadata={'blocks': 3, 'p': noise},
+            json_metadata={'blocks': NUM_BLOCKS, 'p': noise},
         )
-        for noise in [0.001, 0.005, 0.01, 0.02, 0.05, 0.1]
+        for noise in [0.001]#[0.001, 0.005, 0.01, 0.02, 0.05, 0.1]
     ]
 
     collected_stats: List[sinter.TaskStats] = sinter.collect(
@@ -156,7 +154,6 @@ def main():
     plt.show()
 
     print("Plot saved as 'logical_vs_physical_error_rate.png'")
-
 
 if __name__ == "__main__":
     main()
