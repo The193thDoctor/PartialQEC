@@ -5,7 +5,7 @@ import sinter
 from typing import List
 
 # Change this constant to modify the number of logical qubits (blocks)
-NUM_BLOCKS = 1
+NUM_BLOCKS = 3
 
 def stabilizer_to_mpp_targets(stab, block_qubits):
     """
@@ -51,16 +51,48 @@ def encode_logical(circuit, block_qubits):
     """
     q0, q1, q2, q3, q4 = block_qubits
 
-    circuit.append("CNOT", [q0, q3])
-    circuit.append("H_YZ", [q1])
-    circuit.append("H", [q1])
-    circuit.append("CNOT", [q1, q3])
-    circuit.append("CNOT", [q1, q2])
-    circuit.append("H", [q4])
-    circuit.append("CNOT", [q4, q1])
-    circuit.append("CNOT", [q4, q0])
-    circuit.append("H_YZ", [q0])
-    circuit.append("CNOT", [q0, q2])
+
+    # Methods from https://arxiv.org/abs/quant-ph/0410004. Looks like this doesn't work and there might be some issues
+    #   differences
+    #
+    # circuit.append("CNOT", [q0, q3])
+    # circuit.append("H_YZ", [q1])
+    # circuit.append("H", [q1])
+    # circuit.append("CNOT", [q1, q3])
+    # circuit.append("CNOT", [q1, q2])
+    # circuit.append("H", [q4])
+    # circuit.append("CNOT", [q4, q1])
+    # circuit.append("CNOT", [q4, q0])
+    # circuit.append("H_YZ", [q0])
+    # circuit.append("CNOT", [q0, q2])
+
+    # Methods from https://doi.org/10.1201%2F9781420012293. There is some permutation of qubits we need to do to make
+    #   this work.
+    #
+    # circuit.append("Z", [q0])
+    # circuit.append("H", [q1])
+    # circuit.append("CX", [q1, q0])
+    # circuit.append("CZ", [q1, q2])
+    # circuit.append("CZ", [q1, q4])
+    #
+    # circuit.append("H", [q4])
+    # circuit.append("CX", [q4, q0])
+    # circuit.append("CZ", [q4, q1])
+    # circuit.append("CZ", [q4, q3])
+    #
+    # circuit.append("H", [q3])
+    # circuit.append("CZ", [q3, q0])
+    # circuit.append("CZ", [q3, q2])
+    # circuit.append("CX", [q3, q4])
+    #
+    # circuit.append("H",[q2])
+    # circuit.append("CZ", [q2, q1])
+    # circuit.append("CX", [q2, q3])
+    # circuit.append("CZ", [q2, q4])
+
+    circuit.append("H", [q1, q2, q3, q4])
+    circuit.append("CX", [q1, q0, q2, q0, q3, q0, q4, q0])
+    circuit.append("CZ", [q1, q2, q2, q3, q3, q4, q4, q0, q0, q1])
 
 def create_circuit(error_rate):
     """
@@ -110,8 +142,6 @@ def create_circuit(error_rate):
     for qubit in range(total_qubits):
         circuit.append("M", qubit)
 
-    print(circuit)
-    print("CIRCUIT ABOVE")
     return circuit
 
 def main():
@@ -123,16 +153,17 @@ def main():
             circuit=create_circuit(noise),
             json_metadata={'blocks': NUM_BLOCKS, 'p': noise},
         )
-        for noise in [0.001]#[0.001, 0.005, 0.01, 0.02, 0.05, 0.1]
+        for noise in [0.001, 0.005, 0.01, 0.02, 0.05, 0.1]
     ]
 
     collected_stats: List[sinter.TaskStats] = sinter.collect(
         num_workers=4,
         tasks=tasks,
         decoders=['pymatching'],
-        max_shots=10_000,
+        max_shots=10000,
         max_errors=500,
     )
+    print(collected_stats)
 
     fig, ax = plt.subplots(1, 1)
     sinter.plot_error_rate(
@@ -140,9 +171,8 @@ def main():
         stats=collected_stats,
         x_func=lambda stats: stats.json_metadata['p'],
     )
-    ax.set_ylim(1e-4, 1e-0)
-    ax.set_xlim(1e-3, 1e-1)
-    ax.loglog()
+    ax.set_ylim(0, 1.0)
+    ax.set_xlim(0, 0.11)
     ax.set_title("[[5,1,3]] Code Error Rates (Depolarizing Noise)")
     ax.set_xlabel("Physical Error Rate")
     ax.set_ylabel("Logical Error Rate per Shot")
