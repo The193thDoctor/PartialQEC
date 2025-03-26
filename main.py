@@ -2,10 +2,55 @@ import stim
 import numpy as np
 import matplotlib.pyplot as plt
 import sinter
-from typing import List
+from typing import List, Dict, Optional, Any
 
 # Change this constant to modify the number of logical qubits (blocks)
-NUM_BLOCKS = 3
+NUM_BLOCKS = 1
+
+class TrackedCircuit:
+    """
+    A wrapper around stim.Circuit that tracks measurement indices.
+    """
+    def __init__(self):
+        self.circuit = stim.Circuit()
+        self.measurement_count = 0
+    
+    def append(self, instruction, targets=None, arg=None):
+        """
+        Append an instruction to the circuit and track measurement indices.
+        
+        Args:
+            instruction: The instruction name (e.g., "H", "CNOT", "M", "MPP")
+            targets: The targets of the instruction
+            arg: Optional argument for the instruction (e.g., error rate)
+        
+        Returns:
+            The current measurement count if the instruction is a measurement,
+            otherwise None.
+        """
+        result = None
+        is_measurement = instruction in ["M", "MPP", "MX", "MY", "MZ", "MRX", "MRY", "MRZ"]
+        
+        if is_measurement:
+            result = self.measurement_count
+            # Count how many measurements are being added
+            if instruction == "MPP":
+                # For MPP, we add one measurement
+                self.measurement_count += 1
+            else:
+                # For other measurement instructions, count the number of targets
+                if isinstance(targets, list):
+                    self.measurement_count += len(targets)
+                else:
+                    self.measurement_count += 1
+        
+        # Add the instruction to the underlying circuit
+        if arg is not None:
+            self.circuit.append(instruction, targets, arg)
+        else:
+            self.circuit.append(instruction, targets)
+        
+        return result
 
 def stabilizer_to_mpp_targets(stab, block_qubits):
     """
@@ -55,6 +100,12 @@ class ECBlock:
             "XIXZZ",
             "ZXIXZ",
         ]
+        
+        # Track the measurement record indices for each stabilizer
+        self.last_measurement_indices = {stab: None for stab in self.stabilizers}
+
+        # Logical Z
+        self.logical_Z = "ZZZZZ"
     
     def encode_logical(self):
         """
@@ -129,62 +180,101 @@ class ECBlock:
     def measure_stabilizers(self):
         """
         Measure all stabilizers and create detectors.
+        
+        For each stabilizer, we:
+        1. Measure the stabilizer using MPP (Multi-Pauli Product)
+        2. Create a detector that compares the current measurement with the previous one
+           (if available) to detect errors that occurred between measurements
+        3. Store the current measurement index for future comparisons
+        
+        This enables the circuit to detect errors that flip stabilizer values between
+        consecutive measurement rounds, which is essential for error correction.
         """
         for stab in self.stabilizers:
             mpp_targets = stabilizer_to_mpp_targets(stab, self.qubits)
-            self.circuit.append("MPP", mpp_targets)
-            self.circuit.append("DETECTOR", [stim.target_rec(-1)])
+            # Get the current measurement index before appending the MPP instruction
+            current_index = self.circuit.append("MPP", mpp_targets)
+            
+            # Create detector targets based on current and previous measurement
+            detector_targets = [stim.target_rec(-1)]
+            if self.last_measurement_indices[stab] is not None:
+                previous_index = self.last_measurement_indices[stab]
+                # Calculate the record index relative to the current measurement
+                relative_index = -(current_index - previous_index + 1)
+                detector_targets.append(stim.target_rec(relative_index))
+            
+            # Add the detector instruction
+            self.circuit.append("DETECTOR", detector_targets)
+            
+            # Update the last measurement index for this stabilizer
+            self.last_measurement_indices[stab] = current_index
     
-    def measure_all(self):
-        """
-        Measure all qubits in the Z basis.
-        """
-        for q in self.qubits:
-            self.circuit.append("M", q)
+    def measure_logical(self, observable_index):
+        # Make logical Measurement
+        mpp_targets = stabilizer_to_mpp_targets(self.logical_Z, self.qubits)
+        self.circuit.append("MPP", mpp_targets)
 
-def create_circuit(error_rate):
+        # Append to observable record
+        self.circuit.append("OBSERVABLE_INCLUDE", stim.target_rec(-1), observable_index)
+
+
+def create_circuit(error_rate, num_rounds=3):
     """
     Create a stim circuit for the specified error rate.
 
     Qubit assignment:
       Qubit 0: physical control (uncorrected) qubit.
       Qubits 1 to 5*NUM_BLOCKS: Each block of 5 qubits represents an encoded logical qubit using the [[5,1,3]] code.
+      
+    Args:
+        error_rate: The error rate for depolarizing noise
+        num_rounds: Number of rounds of stabilizer measurements
     """
     total_qubits = 1 + NUM_BLOCKS * 5
-    circuit = stim.Circuit()
+    tracked_circuit = TrackedCircuit()
 
     # Initialize all qubits to |0>
     for q in range(total_qubits):
-        circuit.append("R", q)
+        tracked_circuit.append("R", q)
 
     # (Optional) Prepare the control qubit in |1> if desired.
-    circuit.append("X", 0)
+    tracked_circuit.append("X", 0)
     
     # Apply noise to control qubit
-    circuit.append("DEPOLARIZE1", [0], error_rate)
+    # tracked_circuit.append("DEPOLARIZE1", [0], error_rate)
 
     # Create and process each qubit block
     blocks = []
     for block_idx in range(NUM_BLOCKS):
         block_start = 1 + block_idx * 5
-        block = ECBlock(circuit, block_start)
+        block = ECBlock(tracked_circuit, block_start)
         blocks.append(block)
         
-        # Encode the block into the logical state
+        # Encode the logical state
         block.encode_logical()
-        
-        # Apply noise to the block
-        block.apply_noise(error_rate)
-        
-        # Measure stabilizers for error detection
+
+        # Measure stabilizers for error detection in all blocks
         block.measure_stabilizers()
+    
+    # Apply noise and measure stabilizers for multiple rounds
+    for round_idx in range(num_rounds):
+        # Apply noise to all blocks
+        for block in blocks:
+            block.apply_noise(error_rate)
+
+        # Measure stabilizers for error detection in all blocks
+        for block in blocks:
+            block.measure_stabilizers()
 
     # Final measurements in the Z basis
-    circuit.append("M", 0)  # Measure control qubit
-    for block in blocks:
-        block.measure_all()
+    tracked_circuit.append("M", 0)  # Measure control qubit
+    for index in range(NUM_BLOCKS):
+        blocks[index].measure_logical(index)
 
-    return circuit
+    print(tracked_circuit.circuit)
+    print("-------------")
+
+    return tracked_circuit.circuit
 
 def main():
     """
@@ -194,27 +284,28 @@ def main():
         sinter.Task(
             circuit=create_circuit(noise),
             json_metadata={'blocks': NUM_BLOCKS, 'p': noise},
+            collection_options=sinter.CollectionOptions(max_shots=20000)
         )
-        for noise in [0.001, 0.005, 0.01, 0.02, 0.05, 0.1]
+        for noise in np.linspace(0.0, 0.01, 20)
     ]
 
     collected_stats: List[sinter.TaskStats] = sinter.collect(
         num_workers=4,
         tasks=tasks,
         decoders=['pymatching'],
-        max_shots=10000,
+        max_shots=50000,
         max_errors=500,
     )
-    print(collected_stats)
 
     fig, ax = plt.subplots(1, 1)
     sinter.plot_error_rate(
         ax=ax,
         stats=collected_stats,
         x_func=lambda stats: stats.json_metadata['p'],
+        failure_values_func=lambda _ : NUM_BLOCKS,
     )
-    ax.set_ylim(0, 1.0)
-    ax.set_xlim(0, 0.11)
+    ax.set_ylim(0, 0.05)
+    ax.set_xlim(0, 0.01)
     ax.set_title("[[5,1,3]] Code Error Rates (Depolarizing Noise)")
     ax.set_xlabel("Physical Error Rate")
     ax.set_ylabel("Logical Error Rate per Shot")
