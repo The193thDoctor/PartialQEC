@@ -32,67 +32,115 @@ def stabilizer_to_mpp_targets(stab, block_qubits):
             raise ValueError(f"Unexpected Pauli letter: {pauli}")
     return mpp_targets
 
-def encode_logical(circuit, block_qubits):
+class ECBlock:
     """
-    Encode the physical state in the first qubit of block_qubits into a logical state in the full block of qubits
-
-    The ideal state is:
-
-        |0_L> = 1/4 (|00000> + |10010> + |01001> + |10100> +
-                      |01010> + |00101> - |11011> - |01110> -
-                      |10111> - |11000> - |00110> - |11101> -
-                      |01100> - |10001> - |00011> + |11110>)
-
-    which is stabilized by:
-      g1 = XZZXI, g2 = IXZZX, g3 = XIXZZ, g4 = ZXIXZ.
-
-    The following is one example encoding circuit (there are several alternatives).
-    Adjust the gate sequence as needed to suit your simulation.
+    Represents a block of 5 qubits for the [[5,1,3]] code.
     """
-    q0, q1, q2, q3, q4 = block_qubits
+    def __init__(self, circuit, start_index):
+        """
+        Initialize a block of qubits.
+        
+        Args:
+            circuit: The stim circuit to which operations will be added
+            start_index: The starting index of this block in the circuit
+        """
+        self.circuit = circuit
+        self.start_index = start_index
+        self.qubits = list(range(start_index, start_index + 5))
+        
+        # Define the stabilizer generators for the [[5,1,3]] code
+        self.stabilizers = [
+            "XZZXI",
+            "IXZZX",
+            "XIXZZ",
+            "ZXIXZ",
+        ]
+    
+    def encode_logical(self):
+        """
+        Encode the physical state in the first qubit of block_qubits into a logical state in the full block of qubits
 
+        The ideal state is:
 
-    # Methods from https://arxiv.org/abs/quant-ph/0410004. Looks like this doesn't work and there might be some issues
-    #   differences
-    #
-    # circuit.append("CNOT", [q0, q3])
-    # circuit.append("H_YZ", [q1])
-    # circuit.append("H", [q1])
-    # circuit.append("CNOT", [q1, q3])
-    # circuit.append("CNOT", [q1, q2])
-    # circuit.append("H", [q4])
-    # circuit.append("CNOT", [q4, q1])
-    # circuit.append("CNOT", [q4, q0])
-    # circuit.append("H_YZ", [q0])
-    # circuit.append("CNOT", [q0, q2])
+            |0_L> = 1/4 (|00000> + |10010> + |01001> + |10100> +
+                          |01010> + |00101> - |11011> - |01110> -
+                          |10111> - |11000> - |00110> - |11101> -
+                          |01100> - |10001> - |00011> + |11110>)
 
-    # Methods from https://doi.org/10.1201%2F9781420012293. There is some permutation of qubits we need to do to make
-    #   this work.
-    #
-    # circuit.append("Z", [q0])
-    # circuit.append("H", [q1])
-    # circuit.append("CX", [q1, q0])
-    # circuit.append("CZ", [q1, q2])
-    # circuit.append("CZ", [q1, q4])
-    #
-    # circuit.append("H", [q4])
-    # circuit.append("CX", [q4, q0])
-    # circuit.append("CZ", [q4, q1])
-    # circuit.append("CZ", [q4, q3])
-    #
-    # circuit.append("H", [q3])
-    # circuit.append("CZ", [q3, q0])
-    # circuit.append("CZ", [q3, q2])
-    # circuit.append("CX", [q3, q4])
-    #
-    # circuit.append("H",[q2])
-    # circuit.append("CZ", [q2, q1])
-    # circuit.append("CX", [q2, q3])
-    # circuit.append("CZ", [q2, q4])
+        which is stabilized by:
+          g1 = XZZXI, g2 = IXZZX, g3 = XIXZZ, g4 = ZXIXZ.
+        """
 
-    circuit.append("H", [q1, q2, q3, q4])
-    circuit.append("CX", [q1, q0, q2, q0, q3, q0, q4, q0])
-    circuit.append("CZ", [q1, q2, q2, q3, q3, q4, q4, q0, q0, q1])
+        # Methods from https://arxiv.org/abs/quant-ph/0410004. Looks like this doesn't work and there might be some issues
+        #   differences
+        #
+        # circuit.append("CNOT", [q0, q3])
+        # circuit.append("H_YZ", [q1])
+        # circuit.append("H", [q1])
+        # circuit.append("CNOT", [q1, q3])
+        # circuit.append("CNOT", [q1, q2])
+        # circuit.append("H", [q4])
+        # circuit.append("CNOT", [q4, q1])
+        # circuit.append("CNOT", [q4, q0])
+        # circuit.append("H_YZ", [q0])
+        # circuit.append("CNOT", [q0, q2])
+
+        # Methods from https://doi.org/10.1201%2F9781420012293. There is some permutation of qubits we need to do to make
+        #   this work.
+        #
+        # circuit.append("Z", [q0])
+        # circuit.append("H", [q1])
+        # circuit.append("CX", [q1, q0])
+        # circuit.append("CZ", [q1, q2])
+        # circuit.append("CZ", [q1, q4])
+        #
+        # circuit.append("H", [q4])
+        # circuit.append("CX", [q4, q0])
+        # circuit.append("CZ", [q4, q1])
+        # circuit.append("CZ", [q4, q3])
+        #
+        # circuit.append("H", [q3])
+        # circuit.append("CZ", [q3, q0])
+        # circuit.append("CZ", [q3, q2])
+        # circuit.append("CX", [q3, q4])
+        #
+        # circuit.append("H",[q2])
+        # circuit.append("CZ", [q2, q1])
+        # circuit.append("CX", [q2, q3])
+        # circuit.append("CZ", [q2, q4])
+
+        q0, q1, q2, q3, q4 = self.qubits
+
+        # Current encoding method
+        self.circuit.append("H", [q1, q2, q3, q4])
+        self.circuit.append("CX", [q1, q0, q2, q0, q3, q0, q4, q0])
+        self.circuit.append("CZ", [q1, q2, q2, q3, q3, q4, q4, q0, q0, q1])
+    
+    def apply_noise(self, error_rate):
+        """
+        Apply depolarizing noise to all qubits in the block.
+        
+        Args:
+            error_rate: The error rate for depolarizing noise
+        """
+        for q in self.qubits:
+            self.circuit.append("DEPOLARIZE1", [q], error_rate)
+    
+    def measure_stabilizers(self):
+        """
+        Measure all stabilizers and create detectors.
+        """
+        for stab in self.stabilizers:
+            mpp_targets = stabilizer_to_mpp_targets(stab, self.qubits)
+            self.circuit.append("MPP", mpp_targets)
+            self.circuit.append("DETECTOR", [stim.target_rec(-1)])
+    
+    def measure_all(self):
+        """
+        Measure all qubits in the Z basis.
+        """
+        for q in self.qubits:
+            self.circuit.append("M", q)
 
 def create_circuit(error_rate):
     """
@@ -111,36 +159,30 @@ def create_circuit(error_rate):
 
     # (Optional) Prepare the control qubit in |1> if desired.
     circuit.append("X", 0)
+    
+    # Apply noise to control qubit
+    circuit.append("DEPOLARIZE1", [0], error_rate)
 
-    # Define the four stabilizer generators for the [[5,1,3]] code.
-    stabilizers = [
-        "XZZXI",
-        "IXZZX",
-        "XIXZZ",
-        "ZXIXZ",
-    ]
+    # Create and process each qubit block
+    blocks = []
+    for block_idx in range(NUM_BLOCKS):
+        block_start = 1 + block_idx * 5
+        block = ECBlock(circuit, block_start)
+        blocks.append(block)
+        
+        # Encode the block into the logical state
+        block.encode_logical()
+        
+        # Apply noise to the block
+        block.apply_noise(error_rate)
+        
+        # Measure stabilizers for error detection
+        block.measure_stabilizers()
 
-    for block in range(NUM_BLOCKS):
-        block_start = 1 + block * 5
-        block_qubits = list(range(block_start, block_start + 5))
-
-        # Encode the block into the logical state.
-        encode_logical(circuit, block_qubits)
-
-        # Insert depolarizing noise after the encoding.
-        circuit.append("DEPOLARIZE1", [0], error_rate)
-        for q in block_qubits:
-            circuit.append("DEPOLARIZE1", [q], error_rate)
-
-        # For each stabilizer, measure the corresponding multi-qubit Pauli observable.
-        for stab in stabilizers:
-            mpp_targets = stabilizer_to_mpp_targets(stab, block_qubits)
-            circuit.append("MPP", mpp_targets)
-            circuit.append("DETECTOR", [stim.target_rec(-1)])
-
-    # Final measurements in the Z basis.
-    for qubit in range(total_qubits):
-        circuit.append("M", qubit)
+    # Final measurements in the Z basis
+    circuit.append("M", 0)  # Measure control qubit
+    for block in blocks:
+        block.measure_all()
 
     return circuit
 
