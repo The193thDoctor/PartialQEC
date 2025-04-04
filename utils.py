@@ -1,4 +1,5 @@
 import stim
+import numpy as np
 
 class TrackedCircuit:
     """
@@ -71,3 +72,7 @@ def stabilizer_to_mpp_targets(stab, block_qubits):
         else:
             raise ValueError(f"Unexpected Pauli letter: {pauli}")
     return mpp_targets
+
+def is_continuous(arr):
+    return np.all(np.diff(arr) == 1)
+

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import sinter
 from typing import List
 from circuit import create_circuit, NUM_BLOCKS
+from decoder import LookUpTableDecoder
 
 def main():
     """
@@ -20,7 +21,8 @@ def main():
     collected_stats: List[sinter.TaskStats] = sinter.collect(
         num_workers=4,
         tasks=tasks,
-        decoders=['pymatching'],
+        decoders=['lookup_table'],
+        custom_decoders={'lookup_table': LookUpTableDecoder()},
         max_shots=50000,
         max_errors=500,
     )
